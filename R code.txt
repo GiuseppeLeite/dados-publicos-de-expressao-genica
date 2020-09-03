@@ -1,0 +1,72 @@
+#Working directory
+setwd("C:/Users/User/Desktop/Data2")
+
+#Read the targets
+library(limma)
+library (tidyverse)
+library (dplyr)
+
+
+# Read normalized data
+data_MARS <- read.delim("Burnham_sepsis_discovery_normalised_231.txt", header=T)
+
+# Read anotations
+Annotations_Bowtie <- read.delim("Annotations_Bowtie.txt", header=TRUE)
+
+
+V1 <- read.delim("V1.txt", header=TRUE)
+
+
+# Merge two data frames by ID
+Merge_data_anno <- merge(V1, data_MARS,by="ProbeID")
+
+
+#Remove NA
+Merge_data_anno <- merge(Merge_data_anno, Annotations_Bowtie,by="Probe")
+Merge_data_anno <- na.omit(Merge_data_anno, cols=gennames(Merge_data_anno), invert=FALSE)
+
+
+# Remove ID_REF and Biotype Columns
+Merge_data_anno$Probe <- Merge_data_anno$ProbeID <- Merge_data_anno$biotype_gene <- NULL
+
+
+# collapsing transcript expression to gene-level expression
+Data_ave <- Merge_data_anno %>% group_by(gennames) %>% summarise_all(mean, na.rm = TRUE)
+
+
+# Add A Column As Rownames
+Data_ave <- column_to_rownames(Data_ave, var = "gennames")
+
+#
+Data_ave2 <- as.matrix(Data_ave)
+
+class(Data_ave2) <- "numeric"
+is.numeric(Data_ave2) # TRUE
+
+
+# Read Targets
+targets <- read.delim("Target_Burnham_sepsis.txt", header=TRUE)
+
+
+#Design matrix for the linear modelling function
+f <- factor(targets$Target, levels = unique(targets$Target))
+design <- model.matrix(~0 + f)
+colnames(design) <- levels(f)
+
+
+#Apply the intensity values to lmFit
+fit <- lmFit(Data_ave2, design)
+write.table(fit, file="fit.txt", sep="\t", quote=FALSE)
+
+#Create a contrast matrix
+contrast.matrix <- makeContrasts("Sepsis_Day1-Control", levels=design)
+
+#Apply this contrast matrix to the modeled data and compute statistics for the data
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+
+#Output the statistics for the dataset and write them to disk
+output <- topTreat(fit2, coef=1, number=Inf, adjust.method="BH", lfc=0.26)
+write.table(output, file="Sepsis-Control_BURNMAN_LFC_dplyr_23.txt", sep="\t", quote=FALSE)
+
+
